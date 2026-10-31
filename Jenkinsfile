@@ -26,14 +26,14 @@ pipeline {
 
         stage('Deploy Docker Container') {
             when {
-                expression {false }
+                expression { false }
             }
 
             steps {
                 bat '''
                     docker ps -a --filter "name=^/devops-practice-jenkins$" --format "{{.Names}}" | findstr /x "devops-practice-jenkins" >nul
                     if not errorlevel 1 (
-                        echo ERROR: Deployment container name already exists. Stopping deployment to protect existing containers.
+                        echo ERROR: Container already exists.
                         exit /b 1
                     )
 
@@ -49,20 +49,21 @@ pipeline {
         }
 
         stage('HTTP Health Check') {
-    steps {
-        script {
-            def statusCode = bat(
-                script: '@curl.exe -s -o NUL -w "%%{http_code}" http://localhost:8085',
-                returnStdout: true
-            ).trim()
+            steps {
+                script {
+                    def statusCode = bat(
+                        script: '@curl.exe -s -o NUL -w "%%{http_code}" http://localhost:8085',
+                        returnStdout: true
+                    ).trim()
 
-            echo "Website HTTP status: ${statusCode}"
+                    echo "Website HTTP status: ${statusCode}"
 
-            if (statusCode != '200') {
-                error("Health check failed! Expected HTTP 200, received ${statusCode}")
-            }
+                    if (statusCode != '200') {
+                        error("Health check failed! Expected HTTP 200, received ${statusCode}")
+                    }
 
-            echo 'Health check PASSED: Website returned HTTP 200'
+                    echo 'Health check PASSED: Website returned HTTP 200'
+                }
             }
         }
     }
