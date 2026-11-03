@@ -61,7 +61,10 @@ pipeline {
                         )
 
                         docker run -d --name %TEST_CONTAINER% -p %TEST_PORT%:80 %IMAGE_NAME%:build-%BUILD_NUMBER%
-                        if errorlevel 1 exit /b 1
+                        if errorlevel 1 (
+                            echo ERROR: Test deployment failed.
+                            exit /b 1
+                        )
                     '''
                 }
             }
@@ -72,14 +75,20 @@ pipeline {
                 withEnv([
                     'PATH+DOCKER=C:\\Users\\Susrit\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin'
                 ]) {
-                    bat '''
-                        @echo off
-                        docker inspect --format "{{.State.Running}}" %TEST_CONTAINER% | findstr /x true >nul
-                        if errorlevel 1 (
-                            echo ERROR: Test container is not running.
-                            exit /b 1
-                        )
-                    '''
+                    script {
+                        def runningStatus = bat(
+                            script: '@docker inspect --format "{{.State.Running}}" %TEST_CONTAINER%',
+                            returnStdout: true
+                        ).trim()
+
+                        echo "Test container running status: ${runningStatus}"
+
+                        if (runningStatus != 'true') {
+                            error('ERROR: Test container is not running.')
+                        }
+
+                        echo 'Test container verification PASSED.'
+                    }
                 }
             }
         }
@@ -98,7 +107,7 @@ pipeline {
                         error("Test health check failed: ${statusCode}")
                     }
 
-                    echo 'Test health check PASSED.'
+                    echo 'Test HTTP health check PASSED.'
                 }
             }
         }
@@ -110,12 +119,11 @@ pipeline {
                         'PATH+DOCKER=C:\\Users\\Susrit\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin'
                     ]) {
                         def backupName = "devops-practice-previous-${env.BUILD_NUMBER}"
+                        def oldContainerStopped = false
                         def oldContainerRenamed = false
 
-                        // Check that the expected live container exists.
                         bat 'docker container inspect %LIVE_CONTAINER% >nul'
 
-                        // Do not overwrite an existing backup.
                         def backupExists = bat(
                             script: "docker container inspect ${backupName} >nul 2>&1",
                             returnStatus: true
@@ -126,9 +134,10 @@ pipeline {
                         }
 
                         try {
-                            echo 'Stopping the existing port 8085 deployment.'
+                            echo 'Stopping previous deployment on port 8085.'
 
                             bat 'docker stop %LIVE_CONTAINER%'
+                            oldContainerStopped = true
 
                             bat "docker rename %LIVE_CONTAINER% ${backupName}"
                             oldContainerRenamed = true
@@ -147,47 +156,60 @@ pipeline {
                             echo "Live website HTTP status: ${liveStatus}"
 
                             if (liveStatus != '200') {
-                                error("Live deployment health check failed: ${liveStatus}")
+                                error("Live health check failed: ${liveStatus}")
                             }
 
                             echo 'SUCCESS: New version deployed to port 8085.'
                             echo "Previous deployment preserved as ${backupName}"
 
                         } catch (Exception deploymentError) {
-                            echo "Deployment error: ${deploymentError.message}"
+                            echo "Deployment failed: ${deploymentError.message}"
+                            echo 'Attempting to restore the previous deployment.'
 
                             if (oldContainerRenamed) {
-                                echo 'Attempting rollback to the previous deployment.'
-
-                                def removeStatus = bat(
-                                    script: 'docker container inspect %LIVE_CONTAINER% >nul 2>&1 && docker rm -f %LIVE_CONTAINER%',
+                                def newContainerExists = bat(
+                                    script: 'docker container inspect %LIVE_CONTAINER% >nul 2>&1',
                                     returnStatus: true
                                 )
+
+                                if (newContainerExists == 0) {
+                                    def removeStatus = bat(
+                                        script: 'docker rm -f %LIVE_CONTAINER%',
+                                        returnStatus: true
+                                    )
+
+                                    if (removeStatus != 0) {
+                                        echo 'CRITICAL: Could not remove failed new container.'
+                                        error('Rollback requires manual intervention.')
+                                    }
+                                }
 
                                 def renameStatus = bat(
                                     script: "docker rename ${backupName} ${env.LIVE_CONTAINER}",
                                     returnStatus: true
                                 )
 
-                                if (renameStatus == 0) {
-                                    def restartStatus = bat(
-                                        script: 'docker start %LIVE_CONTAINER%',
-                                        returnStatus: true
-                                    )
-
-                                    if (restartStatus == 0) {
-                                        echo 'Previous deployment restarted. Verify port 8085.'
-                                    } else {
-                                        echo 'CRITICAL: Rollback restart failed. Manual recovery required.'
-                                    }
-                                } else {
-                                    echo 'CRITICAL: Rollback rename failed. Manual recovery required.'
+                                if (renameStatus != 0) {
+                                    echo 'CRITICAL: Could not restore original container name.'
+                                    error('Rollback requires manual intervention.')
                                 }
-                            } else {
-                                echo 'Original container was not renamed. Check its running state.'
                             }
 
-                            error('Deployment failed. Review rollback messages above.')
+                            if (oldContainerStopped) {
+                                def restartStatus = bat(
+                                    script: 'docker start %LIVE_CONTAINER%',
+                                    returnStatus: true
+                                )
+
+                                if (restartStatus != 0) {
+                                    echo 'CRITICAL: Previous deployment could not restart.'
+                                    error('Rollback requires manual intervention.')
+                                }
+
+                                echo 'Previous container restarted.'
+                            }
+
+                            error('Deployment failed. Rollback attempted; verify port 8085.')
                         }
                     }
                 }
@@ -197,11 +219,11 @@ pipeline {
 
     post {
         success {
-            echo 'SUCCESS: Pipeline completed and live deployment updated.'
+            echo 'SUCCESS: New website version deployed to port 8085.'
         }
 
         failure {
-            echo 'FAILURE: Pipeline failed. Review deployment and rollback logs.'
+            echo 'FAILURE: Pipeline failed. Check deployment and rollback logs.'
         }
 
         always {
