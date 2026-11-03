@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -19,7 +20,7 @@ pipeline {
         stage('Verify Docker Image') {
             steps {
                 withEnv(['PATH+DOCKER=C:\\Users\\Susrit\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin']) {
-                    bat 'docker image inspect devops-practice:jenkins-v1'
+                    bat 'docker image inspect devops-practice:jenkins-v1 >nul'
                 }
             }
         }
@@ -36,7 +37,7 @@ pipeline {
                             exit /b 1
                         )
 
-                        echo Checking whether port 8086 is available...
+                        echo Checking port 8086...
                         powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 8086 -State Listen -ErrorAction SilentlyContinue) { exit 1 }"
                         if errorlevel 1 (
                             echo ERROR: Port 8086 is already in use.
