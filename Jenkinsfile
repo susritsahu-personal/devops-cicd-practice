@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        PATH+DOCKER = 'C:\\Users\\Susrit\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin'
+        "PATH+DOCKER" = 'C:\\Users\\Susrit\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin'
     }
 
     stages {
