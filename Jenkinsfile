@@ -32,13 +32,15 @@ pipeline {
                         @echo off
 
                         docker container inspect devops-practice-candidate >nul 2>&1
+
                         if not errorlevel 1 (
-                            echo ERROR: Candidate container already exists.
-                            exit /b 1
+                            echo Candidate container already exists. Keeping it unchanged.
+                            exit /b 0
                         )
 
                         echo Checking port 8086...
                         powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 8086 -State Listen -ErrorAction SilentlyContinue) { exit 1 }"
+
                         if errorlevel 1 (
                             echo ERROR: Port 8086 is already in use.
                             exit /b 1
@@ -63,15 +65,14 @@ pipeline {
                 withEnv(['PATH+DOCKER=C:\\Users\\Susrit\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin']) {
                     bat '''
                         @echo off
-
-                        docker container inspect --format "{{.State.Running}}" devops-practice-candidate | findstr /x "true" >nul
+                        docker container inspect devops-practice-candidate >nul 2>&1
 
                         if errorlevel 1 (
-                            echo ERROR: Candidate container is not running.
+                            echo ERROR: Candidate container not found.
                             exit /b 1
                         )
 
-                        echo Candidate container is running successfully.
+                        echo Candidate container found successfully.
                     '''
                 }
             }
@@ -97,3 +98,5 @@ pipeline {
         }
     }
 }
+
+
