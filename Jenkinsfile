@@ -15,6 +15,7 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
@@ -26,7 +27,11 @@ pipeline {
                 withEnv([
                     'PATH+DOCKER=C:\\Users\\Susrit\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin'
                 ]) {
-                    bat 'docker build -t %IMAGE_NAME%:build-%BUILD_NUMBER% .'
+                    bat '''
+                        @echo off
+                        docker build -t %IMAGE_NAME%:build-%BUILD_NUMBER% .
+                        if errorlevel 1 exit /b 1
+                    '''
                 }
             }
         }
@@ -36,7 +41,11 @@ pipeline {
                 withEnv([
                     'PATH+DOCKER=C:\\Users\\Susrit\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin'
                 ]) {
-                    bat 'docker image inspect %IMAGE_NAME%:build-%BUILD_NUMBER% >nul'
+                    bat '''
+                        @echo off
+                        docker image inspect %IMAGE_NAME%:build-%BUILD_NUMBER% >nul
+                        if errorlevel 1 exit /b 1
+                    '''
                 }
             }
         }
@@ -48,6 +57,7 @@ pipeline {
                 ]) {
                     bat '''
                         @echo off
+
                         docker container inspect %TEST_CONTAINER% >nul 2>&1
                         if not errorlevel 1 (
                             echo ERROR: Test container already exists.
@@ -61,10 +71,7 @@ pipeline {
                         )
 
                         docker run -d --name %TEST_CONTAINER% -p %TEST_PORT%:80 %IMAGE_NAME%:build-%BUILD_NUMBER%
-                        if errorlevel 1 (
-                            echo ERROR: Test deployment failed.
-                            exit /b 1
-                        )
+                        if errorlevel 1 exit /b 1
                     '''
                 }
             }
@@ -84,7 +91,7 @@ pipeline {
                         echo "Test container running status: ${runningStatus}"
 
                         if (runningStatus != 'true') {
-                            error('ERROR: Test container is not running.')
+                            error('Test container is not running.')
                         }
 
                         echo 'Test container verification PASSED.'
@@ -134,7 +141,7 @@ pipeline {
                         }
 
                         try {
-                            echo 'Stopping previous deployment on port 8085.'
+                            echo 'Stopping previous local deployment.'
 
                             bat 'docker stop %LIVE_CONTAINER%'
                             oldContainerStopped = true
@@ -145,7 +152,9 @@ pipeline {
                             echo "Previous container preserved as ${backupName}"
 
                             bat '''
+                                @echo off
                                 docker run -d --name %LIVE_CONTAINER% -p %LIVE_PORT%:80 %IMAGE_NAME%:build-%BUILD_NUMBER%
+                                if errorlevel 1 exit /b 1
                             '''
 
                             def liveStatus = bat(
@@ -153,18 +162,18 @@ pipeline {
                                 returnStdout: true
                             ).trim()
 
-                            echo "Live website HTTP status: ${liveStatus}"
+                            echo "Local website HTTP status: ${liveStatus}"
 
                             if (liveStatus != '200') {
-                                error("Live health check failed: ${liveStatus}")
+                                error("Local health check failed: ${liveStatus}")
                             }
 
-                            echo 'SUCCESS: New version deployed to port 8085.'
+                            echo 'SUCCESS: Local deployment healthy.'
                             echo "Previous deployment preserved as ${backupName}"
 
                         } catch (Exception deploymentError) {
                             echo "Deployment failed: ${deploymentError.message}"
-                            echo 'Attempting to restore the previous deployment.'
+                            echo 'Attempting local rollback.'
 
                             if (oldContainerRenamed) {
                                 def newContainerExists = bat(
@@ -179,8 +188,7 @@ pipeline {
                                     )
 
                                     if (removeStatus != 0) {
-                                        echo 'CRITICAL: Could not remove failed new container.'
-                                        error('Rollback requires manual intervention.')
+                                        error('CRITICAL: Failed to remove new container.')
                                     }
                                 }
 
@@ -190,8 +198,7 @@ pipeline {
                                 )
 
                                 if (renameStatus != 0) {
-                                    echo 'CRITICAL: Could not restore original container name.'
-                                    error('Rollback requires manual intervention.')
+                                    error('CRITICAL: Failed to restore container name.')
                                 }
                             }
 
@@ -202,15 +209,207 @@ pipeline {
                                 )
 
                                 if (restartStatus != 0) {
-                                    echo 'CRITICAL: Previous deployment could not restart.'
-                                    error('Rollback requires manual intervention.')
+                                    error('CRITICAL: Previous local container could not restart.')
                                 }
 
-                                echo 'Previous container restarted.'
+                                echo 'Previous local container restarted.'
                             }
 
-                            error('Deployment failed. Rollback attempted; verify port 8085.')
+                            error('Local deployment failed. Rollback attempted.')
                         }
+                    }
+                }
+            }
+        }
+
+        stage('Push Docker Image to Amazon ECR') {
+            steps {
+                withCredentials([
+                    string(
+                        credentialsId: 'aws-jenkins-access-key-id',
+                        variable: 'AWS_ACCESS_KEY_ID'
+                    ),
+                    string(
+                        credentialsId: 'aws-jenkins-secret-access-key',
+                        variable: 'AWS_SECRET_ACCESS_KEY'
+                    ),
+                    string(
+                        credentialsId: 'aws-ecr-repository-uri',
+                        variable: 'ECR_REPOSITORY_URI'
+                    )
+                ]) {
+                    withEnv([
+                        'AWS_DEFAULT_REGION=ap-south-1',
+                        'AWS_EC2_METADATA_DISABLED=true',
+                        'PATH+DOCKER=C:\\Users\\Susrit\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin'
+                    ]) {
+                        powershell '''
+                            $ErrorActionPreference = 'Stop'
+
+                            $registry = ($env:ECR_REPOSITORY_URI -split '/')[0]
+
+                            $password = aws ecr get-login-password --region ap-south-1
+
+                            if ($LASTEXITCODE -ne 0 -or
+                                [string]::IsNullOrWhiteSpace($password)) {
+                                throw 'Unable to obtain ECR login token.'
+                            }
+
+                            try {
+                                $password | docker login --username AWS --password-stdin $registry
+
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw 'Docker login to Amazon ECR failed.'
+                                }
+                            }
+                            finally {
+                                $password = $null
+                            }
+
+                            Write-Host 'SUCCESS: Docker authenticated with Amazon ECR.'
+                        '''
+
+                        bat '''
+                            @echo off
+                            docker tag %IMAGE_NAME%:build-%BUILD_NUMBER% %ECR_REPOSITORY_URI%:build-%BUILD_NUMBER%
+                            if errorlevel 1 exit /b 1
+
+                            docker push %ECR_REPOSITORY_URI%:build-%BUILD_NUMBER%
+                            if errorlevel 1 exit /b 1
+
+                            echo SUCCESS: Docker image pushed to Amazon ECR.
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to AWS EC2 via SSM') {
+            steps {
+                withCredentials([
+                    string(
+                        credentialsId: 'aws-jenkins-access-key-id',
+                        variable: 'AWS_ACCESS_KEY_ID'
+                    ),
+                    string(
+                        credentialsId: 'aws-jenkins-secret-access-key',
+                        variable: 'AWS_SECRET_ACCESS_KEY'
+                    ),
+                    string(
+                        credentialsId: 'aws-ecr-repository-uri',
+                        variable: 'ECR_REPOSITORY_URI'
+                    ),
+                    string(
+                        credentialsId: 'aws-ec2-instance-id',
+                        variable: 'EC2_INSTANCE_ID'
+                    )
+                ]) {
+                    withEnv([
+                        'AWS_DEFAULT_REGION=ap-south-1',
+                        'AWS_EC2_METADATA_DISABLED=true'
+                    ]) {
+                        powershell '''
+                            $ErrorActionPreference = 'Stop'
+
+                            $image = "$env:ECR_REPOSITORY_URI`:build-$env:BUILD_NUMBER"
+
+                            # Read Linux script and normalize Windows line endings.
+                            $scriptText = Get-Content -Raw 'scripts/deploy-aws.sh'
+                            $scriptText = $scriptText.TrimStart([char]0xFEFF)
+                            $scriptText = $scriptText -replace "`r`n", "`n"
+                            $scriptText = $scriptText -replace "`r", "`n"
+
+                            $encoded = [Convert]::ToBase64String(
+                                [Text.Encoding]::UTF8.GetBytes($scriptText)
+                            )
+
+                            $remoteCommand = "echo '$encoded' | base64 -d | bash -s -- '$image'"
+
+                            $parameters = @{
+                                commands = @($remoteCommand)
+                                executionTimeout = @('600')
+                            } | ConvertTo-Json -Compress
+
+                            $parametersFile = Join-Path $env:WORKSPACE 'ssm-deploy-parameters.json'
+
+                            try {
+                                [IO.File]::WriteAllText(
+                                    $parametersFile,
+                                    $parameters,
+                                    [Text.UTF8Encoding]::new($false)
+                                )
+
+                                $commandId = aws ssm send-command `
+                                    --instance-ids $env:EC2_INSTANCE_ID `
+                                    --document-name AWS-RunShellScript `
+                                    --parameters "file://$parametersFile" `
+                                    --timeout-seconds 60 `
+                                    --query 'Command.CommandId' `
+                                    --output text
+
+                                if ($LASTEXITCODE -ne 0 -or
+                                    [string]::IsNullOrWhiteSpace($commandId) -or
+                                    $commandId.Trim() -eq 'None') {
+                                    throw 'SSM command submission failed.'
+                                }
+
+                                $commandId = $commandId.Trim()
+                                Write-Host "SSM command submitted: $commandId"
+                                Write-Host 'Waiting for AWS deployment result...'
+
+                                $completed = $false
+                                $lastStatus = 'Unknown'
+
+                                for ($attempt = 1; $attempt -le 150; $attempt++) {
+
+                                    $result = aws ssm get-command-invocation `
+                                        --command-id $commandId `
+                                        --instance-id $env:EC2_INSTANCE_ID `
+                                        --query '[Status,ResponseCode]' `
+                                        --output text 2>$null
+
+                                    if ($LASTEXITCODE -ne 0) {
+                                        # SSM can briefly report an invocation
+                                        # as unavailable after submission.
+                                        Start-Sleep -Seconds 5
+                                        continue
+                                    }
+
+                                    $fields = ("$result".Trim() -split '\\s+')
+                                    $status = $fields[0]
+                                    $lastStatus = $status
+
+                                    if ($status -eq 'Success') {
+                                        if ($fields.Count -lt 2 -or $fields[1] -ne '0') {
+                                            throw 'SSM reported success without exit code 0.'
+                                        }
+
+                                        $completed = $true
+                                        break
+                                    }
+
+                                    if ($status -in @(
+                                        'Failed',
+                                        'Cancelled',
+                                        'TimedOut',
+                                        'Cancelling'
+                                    )) {
+                                        throw "AWS deployment command failed: $status"
+                                    }
+
+                                    Start-Sleep -Seconds 5
+                                }
+
+                                if (-not $completed) {
+                                    throw "AWS deployment result not confirmed. Last status: $lastStatus. Inspect SSM command history before retrying."
+                                }
+
+                                Write-Host 'SUCCESS: AWS EC2 deployment completed and verified.'
+                            }
+                            finally {
+                                Remove-Item $parametersFile -Force -ErrorAction SilentlyContinue
+                            }
+                        '''
                     }
                 }
             }
@@ -219,11 +418,12 @@ pipeline {
 
     post {
         success {
-            echo 'SUCCESS: New website version deployed to port 8085.'
+            echo 'SUCCESS: Local and AWS deployment stages completed.'
         }
 
         failure {
-            echo 'FAILURE: Pipeline failed. Check deployment and rollback logs.'
+            echo 'FAILURE: Check Jenkins logs and AWS SSM command history.'
+            echo 'Do not retry an uncertain AWS deployment until its SSM command has finished.'
         }
 
         always {
@@ -233,6 +433,7 @@ pipeline {
                 ]) {
                     bat '''
                         @echo off
+
                         docker container inspect %TEST_CONTAINER% >nul 2>&1
                         if errorlevel 1 (
                             echo No temporary test container to clean up.
