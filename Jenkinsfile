@@ -243,30 +243,21 @@ pipeline {
                         'AWS_EC2_METADATA_DISABLED=true',
                         'PATH+DOCKER=C:\\Users\\Susrit\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin'
                     ]) {
-                        powershell '''
-                            $ErrorActionPreference = 'Stop'
+                        
+                        bat '''
+                            @echo off
+                            setlocal EnableExtensions DisableDelayedExpansion
 
-                            $registry = ($env:ECR_REPOSITORY_URI -split '/')[0]
+                            for /f "tokens=1 delims=/" %%A in ("%ECR_REPOSITORY_URI%") do set "ECR_REGISTRY=%%A"
 
-                            $password = aws ecr get-login-password --region ap-south-1
+                            aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin %ECR_REGISTRY%
 
-                            if ($LASTEXITCODE -ne 0 -or
-                                [string]::IsNullOrWhiteSpace($password)) {
-                                throw 'Unable to obtain ECR login token.'
-                            }
+                            if errorlevel 1 (
+                                echo ERROR: Docker login to Amazon ECR failed.
+                                exit /b 1
+                            )
 
-                            try {
-                                $password | docker login --username AWS --password-stdin $registry
-
-                                if ($LASTEXITCODE -ne 0) {
-                                    throw 'Docker login to Amazon ECR failed.'
-                                }
-                            }
-                            finally {
-                                $password = $null
-                            }
-
-                            Write-Host 'SUCCESS: Docker authenticated with Amazon ECR.'
+                            echo SUCCESS: Docker authenticated with Amazon ECR.
                         '''
 
                         bat '''
