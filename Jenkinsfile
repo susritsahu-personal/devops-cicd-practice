@@ -148,6 +148,8 @@ pipeline {
                                 docker run -d --name %LIVE_CONTAINER% -p %LIVE_PORT%:80 %IMAGE_NAME%:build-%BUILD_NUMBER%
                             '''
 
+                            error('SIMULATED LIVE DEPLOYMENT FAILURE - TESTING AUTOMATIC ROLLBACK')
+
                             def liveStatus = bat(
                                 script: '@curl.exe -s -o NUL -w "%%{http_code}" http://localhost:8085',
                                 returnStdout: true
