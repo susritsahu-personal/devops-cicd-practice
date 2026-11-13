@@ -24,34 +24,9 @@ The project also includes deployment health checks, failure detection, manual ro
 
 ## CI/CD Architecture
 
-```text
-Developer
-    |
-    v
-GitHub Repository
-    |
-    v
-Jenkins Pipeline
-    |
-    v
-Docker Image Build
-    |
-    v
-Amazon ECR
-    |
-    v
-AWS EC2 Deployment
-    |
-    v
-HTTP Health Check
-    |
-    +---- Healthy ----> Deployment Successful
-    |
-    +---- Unhealthy --> Automatic Rollback
-                            |
-                            v
-                    Previous Working Container
-```
+![Jenkins Docker AWS CI/CD Architecture](diagrams/cicd-architecture-diagram.png)
+
+
 
 ## CI/CD Pipeline Workflow
 
