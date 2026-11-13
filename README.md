@@ -185,20 +185,17 @@ The automatic rollback mechanism successfully recovered the previous working app
 
 ## Project Screenshots
 
-Screenshots were captured during project implementation and testing.
+### Successful AWS EC2 Deployment
 
-The screenshots demonstrate:
+![AWS EC2 Deployment](screenshots/29-aws-ec2-website-build-20-success.png)
 
-- Jenkins pipeline execution
-- Docker image creation
-- AWS infrastructure configuration
-- Amazon ECR image storage
-- Application deployment to EC2
-- Successful website deployment
-- Manual rollback testing
-- Automatic rollback testing
+### Successful Manual Rollback
 
-Selected screenshots will be added to the repository to provide evidence of the completed project.
+![Manual Rollback](screenshots/30-aws-manual-rollback-test-success.png)
+
+### Successful Automatic Rollback
+
+![Automatic Rollback](screenshots/31-aws-automatic-rollback-test-success.png)
 
 ## Key Learning Outcomes
 
