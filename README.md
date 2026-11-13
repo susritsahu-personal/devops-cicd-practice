@@ -185,15 +185,43 @@ The automatic rollback mechanism successfully recovered the previous working app
 
 ## Project Screenshots
 
-### Successful AWS EC2 Deployment
+### 1. Docker Image Build
 
-![AWS EC2 Deployment](screenshots/29-aws-ec2-website-build-20-success.png)
+![Docker Build](screenshots/01-docker-image-build-success.png)
 
-### Successful Manual Rollback
+### 2. Jenkins CI/CD Pipeline Success
+
+![Jenkins Pipeline](screenshots/20-jenkins-final-successful-deployment.png)
+
+### 3. Jenkins Automatic Rollback
+
+![Jenkins Rollback](screenshots/19-jenkins-automatic-rollback-success.png)
+
+### 4. AWS IAM Role for SSM
+
+![IAM Role](screenshots/21-aws-ec2-ssm-iam-role.png)
+
+### 5. AWS EC2 Instance Running
+
+![EC2 Instance](screenshots/22-aws-ec2-instance-running.png)
+
+### 6. Docker Image Pushed to AWS ECR
+
+![AWS ECR](screenshots/25-aws-ecr-docker-image-pushed.png)
+
+### 7. AWS SSM Command Execution
+
+![AWS SSM](screenshots/27-jenkins-aws-ssm-command-success.png)
+
+### 8. Successful AWS EC2 Deployment
+
+![AWS Deployment](screenshots/29-aws-ec2-website-build-20-success.png)
+
+### 9. Successful Manual AWS Rollback
 
 ![Manual Rollback](screenshots/30-aws-manual-rollback-test-success.png)
 
-### Successful Automatic Rollback
+### 10. Successful Automatic AWS Rollback
 
 ![Automatic Rollback](screenshots/31-aws-automatic-rollback-test-success.png)
 
